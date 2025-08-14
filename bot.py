@@ -1,70 +1,58 @@
-import os
-import logging
 import requests
-from pyrogram import Client, filters
-from pyrogram.types import Message
+from telegram import Update
+from telegram.ext import ApplicationBuilder, MessageHandler, filters, ContextTypes
+import urllib.parse
 
-# ---------- CONFIG ----------
-API_ID = int(os.getenv("API_ID", 26954495))
-API_HASH = os.getenv("API_HASH", "2061c55207cfee4f106ff0dc331fe3d9")
-BOT_TOKEN = os.getenv("BOT_TOKEN", "8347005060:AAHf11nTICnku70OKIcX8OccXr8DlhKa17s")
+BOT_TOKEN = "8347005060:AAHf11nTICnku70OKIcX8OccXr8DlhKa17s"
+BACKEND_API_BASE = "https://tiny-theadora-filetolink7-6059208b.koyeb.app"
+SITE_URL = "http://filmy4uhd.vercel.app"
 
-BACKEND_URL = os.getenv("BACKEND_URL", "https://tiny-theadora-filetolink7-6059208b.koyeb.app")
-SITE_URL = os.getenv("SITE_URL", "http://filmy4uhd.vercel.app")
-
-# ---------- LOGGING ----------
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
-# ---------- BOT INIT ----------
-app = Client(
-    "movie_search_bot",
-    api_id=API_ID,
-    api_hash=API_HASH,
-    bot_token=BOT_TOKEN
-)
-
-# ---------- START COMMAND ----------
-@app.on_message(filters.command("start") & filters.private)
-async def start_cmd(client, message: Message):
-    await message.reply_text(
-        "**🎬 Welcome to Movie Bot!**\n\n"
-        "Just send me the name of a movie or series, and I'll give you the watch link."
-    )
-
-# ---------- MOVIE SEARCH ----------
-@app.on_message(filters.text & filters.private)
-async def movie_search(client, message: Message):
-    query = message.text.strip()
+async def search_movie(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.message.text.strip()
     if not query:
-        return await message.reply_text("❌ Please send a valid movie name.")
-
+        await update.message.reply_text("Type a movie/TV show name.")
+        return
     try:
-        # Backend search API
-        resp = requests.get(f"{BACKEND_URL}/search", params={"q": query})
-        if resp.status_code != 200:
-            return await message.reply_text("⚠️ Error fetching data from backend.")
+        # Search for movie
+        search_url = f"{BACKEND_API_BASE}/api/search/?query={urllib.parse.quote(query)}&page=1&page_size=1"
+        search_res = requests.get(search_url, timeout=10).json()
 
-        results = resp.json()
-        if not results:
-            return await message.reply_text("❌ No results found.")
+        if not search_res.get("results"):
+            await update.message.reply_text("No results found.")
+            return
 
-        # Send first result
-        movie = results[0]
-        title = movie.get("title") or movie.get("name") or "Untitled"
-        movie_id = movie.get("id")
+        first_result = search_res["results"][0]
+        tmdb_id = first_result.get("tmdb_id")
+        title = first_result.get("title", "Unknown Title")
 
-        await message.reply_text(
-            f"**{title}**\n\n"
-            f"[🎥 Watch Here]({SITE_URL}/movie/{movie_id})",
-            disable_web_page_preview=True,
-            parse_mode="Markdown"
+        # Get file details
+        detail_url = f"{BACKEND_API_BASE}/api/id/{tmdb_id}"
+        details = requests.get(detail_url, timeout=10).json()
+        files = details.get("files")
+        if not files:
+            await update.message.reply_text("No downloadable files found for this title.")
+            return
+
+        file_info = files[0]  # Take the first file, can be adapted for quality selection
+        encoded_id = file_info["encoded_id"]
+        file_name = file_info["file_name"]
+
+        watch_link = f"{SITE_URL}/watch/{tmdb_id}"
+        download_link = f"{BACKEND_API_BASE}/dl/{encoded_id}/{urllib.parse.quote(file_name)}"
+
+        reply_text = (
+            f"🎬 <b>{title}</b>\n"
+            f"🆔 <b>TMDB ID:</b> <code>{tmdb_id}</code>\n"
+            f"▶ <a href=\"{watch_link}\">Watch Online</a>\n"
+            f"⬇ <a href=\"{download_link}\">Download/Stream</a>"
         )
+        await update.message.reply_html(reply_text, disable_web_page_preview=False)
 
     except Exception as e:
-        logger.error(e)
-        await message.reply_text("⚠️ Something went wrong. Please try again later.")
+        await update.message.reply_text(f"Error: {str(e)}")
 
-# ---------- RUN ----------
 if __name__ == "__main__":
-    app.run()
+    app = ApplicationBuilder().token(BOT_TOKEN).build()
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, search_movie))
+    print("🤖 Bot is running…")
+    app.run_polling()
