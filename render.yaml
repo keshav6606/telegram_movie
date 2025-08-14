@@ -1,0 +1,19 @@
+services:
+  - type: worker
+    name: telegram-movie-bot
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: python bot.py
+    envVars:
+      - key: API_ID
+        value: "26954495"
+      - key: API_HASH
+        value: "2061c55207cfee4f106ff0dc331fe3d9"
+      - key: BOT_TOKEN
+        value: "8347005060:AAHf11nTICnku70OKIcX8OccXr8DlhKa17s"
+      - key: BACKEND_URL
+        value: "https://tiny-theadora-filetolink7-6059208b.koyeb.app"
+      - key: SITE_URL
+        value: "http://filmy4uhd.vercel.app"
+      - key: PAGE_SIZE
+        value: "8"
