@@ -1,67 +1,65 @@
 import os
-import httpx
-from pyrogram import Client, filters
-from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+import logging
+import requests
+from telegram import Update
+from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
 
-# Config
-API_ID = int(os.getenv("API_ID", "26954495"))
-API_HASH = os.getenv("API_HASH", "2061c55207cfee4f106ff0dc331fe3d9")
-BOT_TOKEN = os.getenv("BOT_TOKEN", "8347005060:AAHf11nTICnku70OKIcX8OccXr8DlhKa17s")
+# Enable logging
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
+)
+
+logger = logging.getLogger(__name__)
+
+# Load environment variables
+BOT_TOKEN = os.getenv("BOT_TOKEN", "8347005060:AAHf11nTICnku70OKIcX8OccXr8dlhKa17s")
 BACKEND_URL = os.getenv("BACKEND_URL", "https://tiny-theadora-filetolink7-6059208b.koyeb.app")
 SITE_URL = os.getenv("SITE_URL", "http://filmy4uhd.vercel.app")
-PAGE_SIZE = int(os.getenv("PAGE_SIZE", "8"))
 
-app = Client("movie_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
+# Start command
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("🎬 Send me a movie name and I'll give you its link!")
 
-@app.on_message(filters.private & filters.text)
-async def search_movie(client, message):
-    query = message.text.strip()
+# Search movie function
+async def search_movie(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.message.text.strip()
     if not query:
-        await message.reply_text("Please type a movie name to search.")
+        await update.message.reply_text("⚠ Please enter a movie name.")
         return
 
-    search_url = f"{BACKEND_URL}/search?query={query}&page=1&size={PAGE_SIZE}"
     try:
-        async with httpx.AsyncClient() as client_http:
-            r = await client_http.get(search_url)
-            if r.status_code != 200:
-                await message.reply_text("Error fetching movies from backend.")
-                return
-            movies = r.json()
+        response = requests.get(f"{BACKEND_URL}/search", params={"query": query}, timeout=10)
+        data = response.json()
+
+        if not data or "results" not in data or len(data["results"]) == 0:
+            await update.message.reply_text("❌ No movie found.")
+            return
+
+        movie = data["results"][0]  # First search result
+        title = movie.get("title", "Unknown Title")
+        movie_id = movie.get("id", "")
+
+        await update.message.reply_text(
+            f"**{title}**\n\n"
+            f"[🎥 Watch Here]({SITE_URL}/movie/{movie_id})",
+            disable_web_page_preview=True,
+            parse_mode="Markdown"
+        )
+
     except Exception as e:
-        await message.reply_text(f"Error: {e}")
-        return
+        logger.error(e)
+        await update.message.reply_text("⚠ An error occurred while searching for the movie.")
 
-    if not movies:
-        await message.reply_text("No movies found.")
-        return
+# Main function to run bot
+def main():
+    app = ApplicationBuilder().token(BOT_TOKEN).build()
 
-    for movie in movies:
-        title = movie.get("title") or movie.get("name")
-        poster = movie.get("poster")
-        tmdb_id = movie.get("tmdb_id")
-        watch_link = f"{SITE_URL}/watch/{tmdb_id}"
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, search_movie))
 
-        buttons = [[InlineKeyboardButton("🎬 Watch Now", url=watch_link)]]
-        try:
-            if poster:
-                await message.reply_photo(
-                    poster,
-                    caption=f"**{title}**",
-                    reply_markup=InlineKeyboardMarkup(buttons)
-                )
-            else:
-                await message.reply_text(
-                    f"**{title}**
-{watch_link}",
-                    reply_markup=InlineKeyboardMarkup(buttons)
-                )
-        except Exception:
-            await message.reply_text(
-                f"**{title}**
-{watch_link}",
-                reply_markup=InlineKeyboardMarkup(buttons)
-            )
+    logger.info("🤖 Bot is running...")
+    app.run_polling()
 
 if __name__ == "__main__":
-    app.run()
+    main()
