@@ -3,4 +3,3 @@ tgcrypto
 httpx
 python-telegram-bot==20.3
 requests
-pip install pyrogram tgcrypto requests
