@@ -1,55 +1,70 @@
-from pyrogram import Client, filters
+import os
+import logging
 import requests
+from pyrogram import Client, filters
+from pyrogram.types import Message
 
-# ====== CONFIG ======
-BOT_TOKEN = "8347005060:AAHf11nTICnku70OKIcX8OccXr8DlhKa17s"
-API_ID = 26954495
-API_HASH = "2061c55207cfee4f106ff0dc331fe3d9"
-BACKEND_URL = "https://tiny-theadora-filetolink7-6059208b.koyeb.app"
-SITE_URL = "http://filmy4uhd.vercel.app"
+# ---------- CONFIG ----------
+API_ID = int(os.getenv("API_ID", 26954495))
+API_HASH = os.getenv("API_HASH", "2061c55207cfee4f106ff0dc331fe3d9")
+BOT_TOKEN = os.getenv("BOT_TOKEN", "8347005060:AAHf11nTICnku70OKIcX8OccXr8DlhKa17s")
 
-# ====== BOT INIT ======
-app = Client("movie_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
+BACKEND_URL = os.getenv("BACKEND_URL", "https://tiny-theadora-filetolink7-6059208b.koyeb.app")
+SITE_URL = os.getenv("SITE_URL", "http://filmy4uhd.vercel.app")
 
-@app.on_message(filters.command("movie") & filters.private)
-def movie_search(client, message):
-    query = " ".join(message.command[1:]).strip()
+# ---------- LOGGING ----------
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# ---------- BOT INIT ----------
+app = Client(
+    "movie_search_bot",
+    api_id=API_ID,
+    api_hash=API_HASH,
+    bot_token=BOT_TOKEN
+)
+
+# ---------- START COMMAND ----------
+@app.on_message(filters.command("start") & filters.private)
+async def start_cmd(client, message: Message):
+    await message.reply_text(
+        "**🎬 Welcome to Movie Bot!**\n\n"
+        "Just send me the name of a movie or series, and I'll give you the watch link."
+    )
+
+# ---------- MOVIE SEARCH ----------
+@app.on_message(filters.text & filters.private)
+async def movie_search(client, message: Message):
+    query = message.text.strip()
     if not query:
-        message.reply_text("❗ Please provide a movie name.\nExample: `/movie Weapons`", quote=True)
-        return
+        return await message.reply_text("❌ Please send a valid movie name.")
 
     try:
-        # Step 1: Call backend search API
-        search_url = f"{BACKEND_URL}/search?query={query}"
-        res = requests.get(search_url)
-        res.raise_for_status()
-        data = res.json()
+        # Backend search API
+        resp = requests.get(f"{BACKEND_URL}/search", params={"q": query})
+        if resp.status_code != 200:
+            return await message.reply_text("⚠️ Error fetching data from backend.")
 
-        if not data or "results" not in data or not data["results"]:
-            message.reply_text("⚠ No results found for your query.")
-            return
+        results = resp.json()
+        if not results:
+            return await message.reply_text("❌ No results found.")
 
-        # Step 2: Take the first result
-        first_item = data["results"][0]
-        movie_id = first_item.get("id")
-        content_type = first_item.get("type")  # Expected: "movie", "series", "tvshow"
+        # Send first result
+        movie = results[0]
+        title = movie.get("title") or movie.get("name") or "Untitled"
+        movie_id = movie.get("id")
 
-        if not movie_id or not content_type:
-            message.reply_text("⚠ API response is missing 'id' or 'type'.")
-            return
-
-        # Step 3: Build final URL
-        final_url = f"{SITE_URL}/{content_type}/{movie_id}"
-
-        # Step 4: Send response
-        message.reply_text(
-            f"🎬 **Title:** {first_item.get('title', 'Unknown')}\n"
-            f"🔗 **Link:** {final_url}"
+        await message.reply_text(
+            f"**{title}**\n\n"
+            f"[🎥 Watch Here]({SITE_URL}/movie/{movie_id})",
+            disable_web_page_preview=True,
+            parse_mode="Markdown"
         )
 
     except Exception as e:
-        message.reply_text(f"❌ Error: {e}")
+        logger.error(e)
+        await message.reply_text("⚠️ Something went wrong. Please try again later.")
 
-# ====== START BOT ======
-print("Bot is running...")
-app.run()
+# ---------- RUN ----------
+if __name__ == "__main__":
+    app.run()
